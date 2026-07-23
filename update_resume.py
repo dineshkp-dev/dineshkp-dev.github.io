@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 update_resume.py — re-scrape a .docx resume and push the new content into
-the standalone resume page (Dinesh Kumar Resume - standalone.html).
+the resume page (index.html).
 
 Usage:
-    python update_resume.py Resume.docx "Dinesh Kumar Resume - standalone.html" -o updated.html
+    python update_resume.py            # reads Pulikesi_Dinesh_Kumar.docx, rewrites index.html in place
+    python update_resume.py other.docx other.html -o updated.html   # override any of them
 
 How it works:
   1. Reads word/document.xml straight out of the .docx zip and pulls out
@@ -296,8 +297,8 @@ def update_contact(source, contact):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("docx")
-    ap.add_argument("html")
+    ap.add_argument("docx", nargs="?", default="Pulikesi_Dinesh_Kumar.docx")
+    ap.add_argument("html", nargs="?", default="index.html")
     ap.add_argument("-o", "--output", default=None)
     args = ap.parse_args()
 
