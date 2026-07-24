@@ -133,14 +133,23 @@ def parse_resume(paragraphs):
         if section == "experience":
             m = DATE_RANGE_RE.match(stripped)
             if m:
+                role = m.group(3).strip()
                 current_job = {
                     "dates": m.group(1).replace("–", "\u2013"),
                     "company": m.group(2).strip(),
-                    "role": m.group(3).strip(),
+                    "role": role,
                     "projects": [],
                 }
                 data["jobs"].append(current_job)
                 current_project = None
+                # Some docx paragraphs glue "Project: X" onto the role instead
+                # of giving it its own line. Split it back out so the bullets
+                # that follow have a project to attach to.
+                if "Project:" in role:
+                    role_part, proj_title = role.split("Project:", 1)
+                    current_job["role"] = role_part.strip()
+                    current_project = {"title": proj_title.strip(), "bullets": []}
+                    current_job["projects"].append(current_project)
                 continue
             pm = PROJECT_RE.match(stripped)
             if pm and current_job is not None:
