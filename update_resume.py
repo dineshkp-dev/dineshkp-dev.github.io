@@ -50,6 +50,12 @@ def extract_paragraphs(docx_path):
 DATE_RANGE_RE = re.compile(
     r"^([A-Za-z]{3,4}\.?\s+\d{4}\s*[–-]\s*[A-Za-z]{3,4}\.?\s*\d{4})\s*\|\s*([^|]+)\|\s*(.+)$"
 )
+# Same date-range header, but findable mid-string. Some docx paragraphs glue a
+# job header onto the tail of the previous job's last bullet (no paragraph
+# break); the trailing "| Company |" is what distinguishes it from prose dates.
+DATE_HEADER_SEARCH = re.compile(
+    r"[A-Za-z]{3,4}\.?\s+\d{4}\s*[–-]\s*[A-Za-z]{3,4}\.?\s*\d{4}\s*\|"
+)
 PROJECT_RE = re.compile(r"^Project:\s*(.+)$")
 YEAR_RE = re.compile(r"(\d{4})\s*$")
 PHONE_RE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
@@ -61,6 +67,47 @@ def split_bullets(paragraph):
     """A paragraph can contain several '• ' separated bullets run together."""
     parts = [b.strip() for b in paragraph.split("•") if b.strip()]
     return parts
+
+
+def split_top_level_commas(s):
+    """Split on commas that are not inside parentheses, e.g. keep
+    'GitHub Copilot (development, production debugging)' as one item."""
+    parts, depth, cur = [], 0, ""
+    for ch in s:
+        if ch == "(":
+            depth += 1
+            cur += ch
+        elif ch == ")":
+            depth = max(0, depth - 1)
+            cur += ch
+        elif ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def start_job(data, m):
+    """Build a job from a DATE_RANGE_RE match, append it, and return
+    (job, current_project). Splits a "Project: X" that the docx glued onto
+    the role into its own project so following bullets have somewhere to go."""
+    role = m.group(3).strip()
+    job = {
+        "dates": m.group(1).replace("–", "–"),
+        "company": m.group(2).strip(),
+        "role": role,
+        "projects": [],
+    }
+    data["jobs"].append(job)
+    project = None
+    if "Project:" in role:
+        role_part, proj_title = role.split("Project:", 1)
+        job["role"] = role_part.strip()
+        project = {"title": proj_title.strip(), "bullets": []}
+        job["projects"].append(project)
+    return job, project
 
 
 def parse_resume(paragraphs):
@@ -117,7 +164,7 @@ def parse_resume(paragraphs):
             for chunk in split_bullets(stripped):
                 if ":" in chunk:
                     label, items = chunk.split(":", 1)
-                    items = [i.strip() for i in items.split(",") if i.strip()]
+                    items = split_top_level_commas(items)
                     data["skillGroups"].append({"label": label.strip(), "items": items})
             continue
 
@@ -133,23 +180,7 @@ def parse_resume(paragraphs):
         if section == "experience":
             m = DATE_RANGE_RE.match(stripped)
             if m:
-                role = m.group(3).strip()
-                current_job = {
-                    "dates": m.group(1).replace("–", "\u2013"),
-                    "company": m.group(2).strip(),
-                    "role": role,
-                    "projects": [],
-                }
-                data["jobs"].append(current_job)
-                current_project = None
-                # Some docx paragraphs glue "Project: X" onto the role instead
-                # of giving it its own line. Split it back out so the bullets
-                # that follow have a project to attach to.
-                if "Project:" in role:
-                    role_part, proj_title = role.split("Project:", 1)
-                    current_job["role"] = role_part.strip()
-                    current_project = {"title": proj_title.strip(), "bullets": []}
-                    current_job["projects"].append(current_project)
+                current_job, current_project = start_job(data, m)
                 continue
             pm = PROJECT_RE.match(stripped)
             if pm and current_job is not None:
@@ -158,7 +189,19 @@ def parse_resume(paragraphs):
                 continue
             if current_project is not None:
                 for b in split_bullets(stripped):
-                    current_project["bullets"].append(b)
+                    # A bullet can have the next job's header glued onto its end
+                    # (docx has no paragraph break). Split it off and start that
+                    # job so its projects/bullets aren't swallowed by this one.
+                    dm = DATE_HEADER_SEARCH.search(b)
+                    if dm and dm.start() > 0:
+                        lead = b[: dm.start()].strip()
+                        if lead:
+                            current_project["bullets"].append(lead)
+                        hm = DATE_RANGE_RE.match(b[dm.start():].strip())
+                        if hm:
+                            current_job, current_project = start_job(data, hm)
+                    else:
+                        current_project["bullets"].append(b)
             continue
 
         if section == "education":
@@ -170,138 +213,25 @@ def parse_resume(paragraphs):
     return data
 
 
-def js_string(s):
-    return json.dumps(s, ensure_ascii=False)
+def add_headline(data):
+    """Sidebar headline = the most recent job's role."""
+    if data["jobs"]:
+        data["headline"] = data["jobs"][0]["role"]
+    return data
 
 
-def js_array_literal(name, items, indent="      "):
-    def obj_lines(o, ind):
-        lines = []
-        for k, v in o.items():
-            if isinstance(v, list):
-                sub = ",\n".join(f"{ind}  {js_string(x)}" for x in v)
-                lines.append(f"{ind}  {k}: [\n{sub}\n{ind}  ]")
-            elif isinstance(v, dict):
-                pass
-            else:
-                lines.append(f"{ind}  {k}: {js_string(v)}")
-        return ",\n".join(lines)
-
-    entries = []
-    for item in items:
-        if "projects" in item:
-            proj_entries = []
-            for proj in item["projects"]:
-                bullets = ",\n".join(f"{indent}      {js_string(b)}" for b in proj["bullets"])
-                proj_entries.append(
-                    f"{indent}    {{ title: {js_string(proj['title'])}, bullets: [\n{bullets}\n{indent}    ]}}"
-                )
-            projects_block = ",\n".join(proj_entries)
-            entries.append(
-                f"{indent}  {{\n{indent}    dates: {js_string(item['dates'])}, role: {js_string(item['role'])}, company: {js_string(item['company'])},\n"
-                f"{indent}    projects: [\n{projects_block}\n{indent}    ]\n{indent}  }}"
-            )
-        else:
-            entries.append(f"{indent}  {{ {obj_lines(item, indent)} }}")
-    body = ",\n".join(entries)
-    return f"{name}: [\n{body}\n{indent}]"
+DATA_SCRIPT_RE = re.compile(r'(<script[^>]*id="resume-data"[^>]*>)(.*?)(</script>)', re.S)
 
 
-def replace_array_block(source, array_name, new_literal):
-    """Replace `name: [ ... ]` (balanced brackets) with new_literal, keeping trailing comma."""
-    key = f"{array_name}: ["
-    start = source.index(key)
-    depth = 0
-    i = start + len(key) - 1  # position of the opening '['
-    for j in range(i, len(source)):
-        if source[j] == "[":
-            depth += 1
-        elif source[j] == "]":
-            depth -= 1
-            if depth == 0:
-                end = j + 1
-                break
-    else:
-        raise ValueError(f"Could not find end of array for {array_name}")
-    return source[:start] + new_literal + source[end:]
-
-
-def update_contact(source, contact):
-    if not contact:
-        return source
-
-    if contact.get("name"):
-        source = re.sub(
-            r"(letter-spacing:0\.01em;\">)[^<]+(</div>)",
-            lambda m: m.group(1) + contact["name"] + m.group(2),
-            source,
-            count=2,  # sidebar heading + mobile header link both use this text
-        )
-        # mobile header link has a different style string; swap by exact prior name text if still present
-        source = re.sub(
-            r'(font-size:16px; font-weight:600; white-space:nowrap;">)[^<]+(</a>)',
-            lambda m: m.group(1) + contact["name"] + m.group(2),
-            source,
-        )
-
-    if contact.get("location"):
-        source = re.sub(
-            r'(color:rgba\(255,255,255,0\.55\); margin-top:4px;\">)[^<]+(</div>)',
-            lambda m: m.group(1) + contact["location"] + m.group(2),
-            source,
-        )
-
-    phones = contact.get("phones") or []
-    if phones:
-        def digits(p):
-            return re.sub(r"[^\d+]", "", p)
-        # rebuild the PHONE table cell entirely so any number of phone lines works
-        phone_links = "".join(
-            f'<a href="tel:{digits(p)}" style="color:rgba(255,255,255,0.85); text-decoration:none; display:block;'
-            + (' margin-top:4px;"' if i else '"') + f'>{p.strip()}</a>'
-            for i, p in enumerate(phones)
-        )
-        source = re.sub(
-            r'(<td style="padding:6px 0;"><a href="tel:).*?(</td>\s*</tr>\s*<tr>\s*<td[^>]*>MAIL)',
-            lambda m: '<td style="padding:6px 0;">' + phone_links + m.group(2),
-            source,
-            flags=re.S,
-        )
-
-    if contact.get("email"):
-        email = contact["email"]
-        source = re.sub(
-            r'href="mailto:[^"]+"',
-            f'href="mailto:{email}"',
-            source,
-        )
-        source = re.sub(
-            r'(word-break:break-all;\"><a href="mailto:[^"]+" style="color:rgba\(255,255,255,0\.85\); text-decoration:none;\">)[^<]+(</a>)',
-            lambda m: m.group(1) + email + m.group(2),
-            source,
-        )
-
-    if contact.get("github"):
-        gh = contact["github"].rstrip("/")
-        handle = gh.rsplit("/", 1)[-1]
-        source = re.sub(r'href="https://github\.com/[^"]+"', f'href="{gh}"', source)
-        source = re.sub(
-            r'(github\.com/[^"]+" target="_blank" rel="noopener" style="color:rgba\(255,255,255,0\.85\); text-decoration:none;\">)[^<]+(</a>)',
-            lambda m: m.group(1) + handle + m.group(2),
-            source,
-        )
-
-    if contact.get("linkedin"):
-        li = contact["linkedin"].rstrip("/") + "/"
-        handle = li.rstrip("/").rsplit("/", 1)[-1]
-        source = re.sub(r'href="https://www\.linkedin\.com/[^"]+"', f'href="{li}"', source)
-        source = re.sub(
-            r'(linkedin\.com/[^"]+" target="_blank" rel="noopener" style="color:rgba\(255,255,255,0\.85\); text-decoration:none;\">)[^<]+(</a>)',
-            lambda m: m.group(1) + handle + m.group(2),
-            source,
-        )
-
-    return source
+def inject_data(html, data):
+    """Replace the JSON in the #resume-data island with the parsed resume."""
+    if not DATA_SCRIPT_RE.search(html):
+        raise ValueError('Could not find <script id="resume-data"> in the HTML')
+    blob = json.dumps(data, ensure_ascii=False)
+    # Keep it safe inside <script>: escape "</" so no literal </script> can appear.
+    # json.loads / JSON.parse both accept the "<\/" escape.
+    blob = blob.replace("</", "<\\/")
+    return DATA_SCRIPT_RE.sub(lambda m: m.group(1) + blob + m.group(3), html, count=1)
 
 
 def main():
@@ -311,34 +241,15 @@ def main():
     ap.add_argument("-o", "--output", default=None)
     args = ap.parse_args()
 
-    paragraphs = extract_paragraphs(args.docx)
-    data = parse_resume(paragraphs)
+    data = add_headline(parse_resume(extract_paragraphs(args.docx)))
 
     with open(args.html, "r", encoding="utf-8") as f:
         html = f.read()
 
-    marker = '<script type="__bundler/template">'
-    start = html.index(marker) + len(marker)
-    end = html.index("</script>", start)
-    json_blob = html[start:end].strip()
-    # bundler escapes "</" as "<\u002F" to keep the JSON string safe inside <script>;
-    # json.loads handles \u002F natively, so decode directly.
-    source = json.loads(json_blob)
-
-    source = replace_array_block(source, "skillGroups", js_array_literal("skillGroups", data["skillGroups"]))
-    source = replace_array_block(source, "jobs", js_array_literal("jobs", data["jobs"]))
-    source = replace_array_block(source, "honors", js_array_literal("honors", data["honors"]))
-    source = replace_array_block(source, "education", js_array_literal("education", data["education"]))
-    source = update_contact(source, {**data["contact"], "name": data["name"]})
-
-    new_blob = json.dumps(source, ensure_ascii=False)
-    # re-apply the </script>-safe escaping the bundler uses
-    new_blob = new_blob.replace("</script", "<\\u002Fscript").replace("</SCRIPT", "<\\u002FSCRIPT")
-
-    new_html = html[: html.index(marker) + len(marker)] + new_blob + html[end:]
+    new_html = inject_data(html, data)
 
     out_path = args.output or args.html
-    with open(out_path, "w", encoding="utf-8") as f:
+    with open(out_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(new_html)
     print(f"Updated {len(data['jobs'])} jobs, {len(data['skillGroups'])} skill groups, "
           f"{len(data['honors'])} honors, {len(data['education'])} education entries.")
