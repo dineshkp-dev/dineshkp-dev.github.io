@@ -97,6 +97,18 @@ Fonts (Inter + Source Serif 4) load from Google Fonts, with a system-ui
 fallback if offline. The résumé body is rendered by JavaScript; a `<noscript>`
 block shows contact details if JS is disabled.
 
+## Deployment
+
+The site is hosted on **GitHub Pages** as a user site at
+**https://dineshkp-dev.github.io/**. A GitHub Actions workflow
+(`.github/workflows/deploy.yml`) publishes on every push to `master`: it copies
+**only `index.html`** into the Pages artifact and deploys it — no build, no
+Jekyll. Source files stay in the repo but are not served under the site URL. See
+`docs/adr/0002-github-pages-deployment.md`.
+
+To ship a résumé update: run `python update_resume.py`, commit `index.html` via a
+PR, and merging to `master` redeploys automatically.
+
 ## Working conventions
 
 - Ship changes via a **feature branch → pull request → merge** into `master`;
