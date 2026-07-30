@@ -1,3 +1,7 @@
 .idea/
 __pycache__/
 Pulikesi_Dinesh_Kumar.docx
+~$*.docx
+# Source headshot. The page ships a downscaled crop inlined as a data URI,
+# so the full-size original is a local source artifact like the .docx.
+profile_head_1.jpg

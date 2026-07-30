@@ -8,14 +8,17 @@ Usage:
     python update_resume.py other.docx other.html -o updated.html   # override any of them
 
 How it works:
+  0. Exports the .docx to Dinesh-Kumar-Pulikesi-Resume.pdf by driving Word
+     over COM from PowerShell (stdlib subprocess only — no pywin32). This
+     runs FIRST and hard-fails: if the PDF cannot be written, index.html is
+     left untouched, so the published page and the downloadable PDF can
+     never drift apart. Requires Windows with Word installed.
   1. Reads word/document.xml straight out of the .docx zip and pulls out
      paragraph text (no python-docx dependency needed).
   2. Parses that text into the same shape the page expects: skill groups,
      jobs (with nested projects/bullets), honors, and education.
-  3. The page embeds its own original source as one big JSON string inside
-     a <script type="__bundler/template"> tag. This script decodes that
-     string, replaces the data arrays inside the embedded Component class
-     via regex, re-encodes it, and writes a new HTML file.
+  3. Replaces the JSON in the page's <script id="resume-data"> island and
+     writes the HTML back out.
 
 NOTE: this only updates the four data arrays (skillGroups / jobs / honors /
 education). If you restructure the resume sections drastically, re-check
@@ -24,13 +27,71 @@ original resume (see PATTERNS section).
 """
 import argparse
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import zipfile
 from xml.sax.saxutils import unescape
 
 W_T_RE = re.compile(r"<w:t[^>]*>([^<]*)</w:t>")
 NUMPR_RE = re.compile(r"<w:numPr>")
+
+# The download the page links to. Deployed alongside index.html (see ADR 0003).
+PDF_OUTPUT = "Dinesh-Kumar-Pulikesi-Resume.pdf"
+
+# Word is a single-instance COM server: New-Object attaches to an already
+# running Word rather than starting a private one. So only touch Visible /
+# DisplayAlerts and only Quit when we were the ones who started it -- otherwise
+# this would hide or close the user's own Word session. We export from a temp
+# copy so an open (locked) source document is never a problem.
+WORD_EXPORT_PS = """
+$ErrorActionPreference = 'Stop'
+$src = __SRC__
+$pdf = __PDF__
+$wasRunning = [bool](Get-Process -Name WINWORD -ErrorAction SilentlyContinue)
+$word = New-Object -ComObject Word.Application
+if (-not $wasRunning) { $word.Visible = $false; $word.DisplayAlerts = 0 }
+$doc = $null
+try {
+    $doc = $word.Documents.Open($src, $false, $true)
+    $doc.ExportAsFixedFormat($pdf, 17)
+} finally {
+    if ($doc -ne $null) { $doc.Close(0) }
+    if (-not $wasRunning) { $word.Quit() }
+}
+"""
+
+
+def ps_quote(s):
+    """Quote a path as a PowerShell single-quoted literal."""
+    return "'" + s.replace("'", "''") + "'"
+
+
+def export_pdf(docx_path, pdf_path):
+    """Export the .docx to PDF via Word COM. Raises SystemExit on any failure."""
+    tmp_dir = tempfile.mkdtemp()
+    tmp_docx = os.path.join(tmp_dir, "resume.docx")
+    try:
+        shutil.copyfile(docx_path, tmp_docx)
+        script = (WORD_EXPORT_PS
+                  .replace("__SRC__", ps_quote(tmp_docx))
+                  .replace("__PDF__", ps_quote(pdf_path)))
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True,
+        )
+        if proc.returncode != 0 or not os.path.exists(pdf_path):
+            sys.stderr.write(proc.stdout + proc.stderr)
+            raise SystemExit(
+                f"PDF export failed -- {pdf_path} not written. Nothing else was "
+                f"changed. Needs Windows with Word installed; close the document "
+                f"in Word and retry if it stays broken."
+            )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def extract_paragraphs(docx_path):
@@ -154,10 +215,15 @@ def parse_resume(paragraphs):
                 if em:
                     data["contact"]["email"] = em.group(0)
                 for url in URL_RE.findall(stripped):
+                    url = url.rstrip("|").strip()
                     if "github.com" in url:
-                        data["contact"]["github"] = url.rstrip("|").strip()
+                        data["contact"]["github"] = url
                     elif "linkedin.com" in url:
-                        data["contact"]["linkedin"] = url.rstrip("|").strip()
+                        data["contact"]["linkedin"] = url
+                    else:
+                        # Anything else in the header line is the personal site
+                        # (github.io -- note it is NOT github.com).
+                        data["contact"]["website"] = url
             continue
 
         if section == "skills":
@@ -241,6 +307,11 @@ def main():
     ap.add_argument("-o", "--output", default=None)
     args = ap.parse_args()
 
+    # Export first: on failure this exits without touching the HTML, so the
+    # page and the downloadable PDF always move together.
+    pdf_path = os.path.join(os.path.dirname(os.path.abspath(args.docx)), PDF_OUTPUT)
+    export_pdf(args.docx, pdf_path)
+
     data = add_headline(parse_resume(extract_paragraphs(args.docx)))
 
     with open(args.html, "r", encoding="utf-8") as f:
@@ -253,6 +324,7 @@ def main():
         f.write(new_html)
     print(f"Updated {len(data['jobs'])} jobs, {len(data['skillGroups'])} skill groups, "
           f"{len(data['honors'])} honors, {len(data['education'])} education entries.")
+    print(f"Wrote {pdf_path}")
     print(f"Wrote {out_path}")
 
 

@@ -3,6 +3,10 @@
 Status: Accepted
 Date: 2026-07-25
 
+Amended by [ADR 0003](0003-downloadable-pdf-and-profile-photo.md): the artifact is
+no longer `index.html` alone — `Dinesh-Kumar-Pulikesi-Resume.pdf` is committed and
+copied alongside it. The source `.docx` remains git-ignored and unpublished.
+
 ## Context
 
 `index.html` is a single, self-contained static page (see ADR 0001) with no build
