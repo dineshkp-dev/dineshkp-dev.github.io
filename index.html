@@ -218,6 +218,18 @@
   /* ---------- print ---------- */
   @media print {
     :root { color-scheme: light; }
+    /* data-theme stays on whatever the visitor chose, so dark-theme inks would
+       print near-invisible against the forced-white background. Rebind the ink
+       and chip tokens instead of recolouring each element. Selectors match the
+       theme rules' specificity and come later, so they win. */
+    :root, :root[data-theme="dark"], :root[data-theme="light"] {
+      --ink: #111;
+      --ink-soft: #333;
+      --ink-faint: #555;
+      --chip-bg: #fff;
+      --chip-border: #bbb;
+      --rule: #ddd;
+    }
     .backdrop, .grain, .controls { display: none !important; }
     /* The downloadable PDF carries no photo -- keep paper output matching it. */
     .avatar { display: none !important; }
