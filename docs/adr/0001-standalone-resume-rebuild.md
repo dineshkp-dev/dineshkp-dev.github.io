@@ -3,6 +3,11 @@
 Status: Accepted
 Date: 2026-07-24
 
+Amended by [ADR 0003](0003-downloadable-pdf-and-profile-photo.md): the page stays
+self-contained (the profile photo is inlined as a data URI), but
+`update_resume.py` now requires Windows with Word installed to export the PDF.
+Its "no third-party dependencies" property is unchanged.
+
 ## Context
 
 `index.html` was a compiled "datacomp" (`<x-dc>`) bundle: the visible page was

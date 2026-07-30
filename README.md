@@ -9,11 +9,13 @@ light toggle).
 
 | Path | What it is |
 |------|-----------|
-| `index.html` | The entire site: inline CSS + a small renderer script + a JSON **data island**. Hand-authored; safe to open directly in a browser. |
-| `update_resume.py` | Regenerates the data island in `index.html` from a `.docx` résumé. No third-party dependencies. |
+| `index.html` | The entire site: inline CSS + a small renderer script + a JSON **data island** + the profile photo as a data URI. Hand-authored; safe to open directly in a browser. |
+| `update_resume.py` | Exports the `.docx` to PDF via Word, then regenerates the data island in `index.html`. No third-party dependencies (needs Windows + Word). |
+| `Dinesh-Kumar-Pulikesi-Resume.pdf` | The downloadable résumé. **Generated — do not edit by hand.** Committed and deployed. |
 | `docs/adr/` | Architecture Decision Records. Start with `0001-standalone-resume-rebuild.md`. |
 | `CLAUDE.md` | Agent instructions (issue tracker, triage, domain docs conventions). |
 | `Pulikesi_Dinesh_Kumar.docx` | Source résumé. **Git-ignored** — keep it locally, it is not committed. |
+| `profile_head_1.jpg` | Source headshot. **Git-ignored** — the page ships a downscaled crop inline. |
 
 ## How it works
 
@@ -39,10 +41,22 @@ markup, and restyling never touches the data.
    ```bash
    python update_resume.py
    ```
-   This parses the docx and rewrites the `#resume-data` island in `index.html`
-   **in place**. You'll see a summary like
+   This does two things, in order:
+   1. Exports the docx to `Dinesh-Kumar-Pulikesi-Resume.pdf` by driving Word over
+      COM (PowerShell, via stdlib `subprocess` — no `pywin32`).
+   2. Parses the docx and rewrites the `#resume-data` island in `index.html`
+      **in place**.
+
+   You'll see a summary like
    `Updated 7 jobs, 7 skill groups, 6 honors, 2 education entries.`
-3. Open `index.html` in a browser to check it, then commit `index.html`.
+
+   The export runs **first and hard-fails**: if the PDF can't be written the
+   script exits non-zero and `index.html` is left untouched, so the page and the
+   downloadable PDF can never drift apart. This means the updater needs
+   **Windows with Word installed**. Your open Word session is safe — the export
+   works from a temp copy and won't close a Word you already had running.
+3. Open `index.html` in a browser to check it, then commit **both**
+   `index.html` and `Dinesh-Kumar-Pulikesi-Resume.pdf`.
 
 Override the defaults if needed:
 ```bash
@@ -75,8 +89,14 @@ across content updates. Key knobs:
   and `:root[data-theme="light"]` (accent + navy are `oklch(...)`).
 - **Dark / light** — dark is the default; the moon/sun button toggles and
   remembers the choice in `localStorage`.
-- **Print / PDF** — the printer button (or `Ctrl/Cmd+P`) uses a print stylesheet
-  that forces clean light-on-white.
+- **Download** — the down-arrow button links straight to
+  `Dinesh-Kumar-Pulikesi-Resume.pdf`. There is no print button, but `Ctrl/Cmd+P`
+  still uses the print stylesheet, which forces clean light-on-white and hides
+  the photo (the PDF has none).
+- **Profile photo** — inlined as a data URI in the `AVATAR` constant at the top
+  of the renderer script, so the page stays self-contained. To replace it:
+  crop `profile_head_1.jpg` to a square (1600 px, offset 40 px from the top),
+  scale to 320×320 at JPEG q82, base64-encode it, and swap the string.
 - **Motion** — scroll-reveal + hover effects, automatically disabled under
   `prefers-reduced-motion`.
 
@@ -102,12 +122,14 @@ block shows contact details if JS is disabled.
 The site is hosted on **GitHub Pages** as a user site at
 **https://dineshkp-dev.github.io/**. A GitHub Actions workflow
 (`.github/workflows/deploy.yml`) publishes on every push to `master`: it copies
-**only `index.html`** into the Pages artifact and deploys it — no build, no
-Jekyll. Source files stay in the repo but are not served under the site URL. See
-`docs/adr/0002-github-pages-deployment.md`.
+**`index.html` and `Dinesh-Kumar-Pulikesi-Resume.pdf`** into the Pages artifact
+and deploys them — no build, no Jekyll. Every other source file stays in the repo
+but is not served under the site URL. See
+`docs/adr/0002-github-pages-deployment.md` and
+`docs/adr/0003-downloadable-pdf-and-profile-photo.md`.
 
-To ship a résumé update: run `python update_resume.py`, commit `index.html` via a
-PR, and merging to `master` redeploys automatically.
+To ship a résumé update: run `python update_resume.py`, commit `index.html` and
+the PDF via a PR, and merging to `master` redeploys automatically.
 
 ## Working conventions
 
