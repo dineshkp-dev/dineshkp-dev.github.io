@@ -38,6 +38,9 @@ from xml.sax.saxutils import unescape
 
 W_T_RE = re.compile(r"<w:t[^>]*>([^<]*)</w:t>")
 NUMPR_RE = re.compile(r"<w:numPr>")
+# Line/tab breaks carry no <w:t> text, so without this the runs on either side
+# of one get glued together (e.g. the header's ".../github.io/" + "+65 ...").
+BREAK_RE = re.compile(r"<w:(?:br|tab)[^>]*/>")
 
 # The download the page links to. Deployed alongside index.html (see ADR 0003).
 PDF_OUTPUT = "Dinesh-Kumar-Pulikesi-Resume.pdf"
@@ -97,6 +100,7 @@ def export_pdf(docx_path, pdf_path):
 def extract_paragraphs(docx_path):
     with zipfile.ZipFile(docx_path) as z:
         xml = z.read("word/document.xml").decode("utf-8")
+    xml = BREAK_RE.sub("<w:t> </w:t>", xml)
     paras = xml.split("</w:p>")
     out = []
     for p in paras:
