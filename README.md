@@ -9,7 +9,7 @@ light toggle).
 
 | Path | What it is |
 |------|-----------|
-| `index.html` | The entire site: inline CSS + a small renderer script + a JSON **data island** + the profile photo as a data URI. Hand-authored; safe to open directly in a browser. |
+| `index.html` | The entire site: inline CSS + a small renderer script + a JSON **data island** + the profile photo, backdrop, and favicon as data URIs. Hand-authored; safe to open directly in a browser. |
 | `update_resume.py` | Exports the `.docx` to PDF via Word, then regenerates the data island in `index.html`. No third-party dependencies (needs Windows + Word). |
 | `Dinesh-Kumar-Pulikesi-Resume.pdf` | The downloadable résumé. **Generated — do not edit by hand.** Committed and deployed. |
 | `docs/adr/` | Architecture Decision Records. Start with `0001-standalone-resume-rebuild.md`. |
@@ -97,6 +97,16 @@ across content updates. Key knobs:
   of the renderer script, so the page stays self-contained. To replace it:
   crop `profile_head_1.jpg` to a square (1600 px, offset 40 px from the top),
   scale to 320×320 at JPEG q82, base64-encode it, and swap the string.
+- **Backdrop** — the dark theme blurs the glass panels over a generated image,
+  inlined as a WebP data URI in the `:root[data-theme="dark"] .backdrop` rule.
+  A scrim above it holds text contrast, and the original gradient stays as the
+  bottom layer so the page degrades gracefully if the image fails. To replace it:
+  scale to 1920×1080, encode WebP q78, base64-encode, and swap the string —
+  soft gradients compress to ~30 KB, so keep an eye on the size if you use a
+  busier image. **Light theme deliberately keeps CSS gradients**; a bright image
+  under light-mode glass wrecks legibility.
+- **Favicon** — a 64×64 PNG monogram inlined as a data URI on the
+  `<link rel="icon">` in `<head>`.
 - **Motion** — scroll-reveal + hover effects, automatically disabled under
   `prefers-reduced-motion`.
 
