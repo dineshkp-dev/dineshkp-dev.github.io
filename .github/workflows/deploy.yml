@@ -26,11 +26,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Assemble site (page + downloadable résumé)
+      - name: Assemble site (page + downloadable résumé + social card)
         run: |
           mkdir _site
           cp index.html _site/
           cp Dinesh-Kumar-Pulikesi-Resume.pdf _site/
+          cp og-card.jpg _site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
