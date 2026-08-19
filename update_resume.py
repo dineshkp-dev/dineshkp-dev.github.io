@@ -20,10 +20,11 @@ How it works:
   3. Replaces the JSON in the page's <script id="resume-data"> island and
      writes the HTML back out.
 
-NOTE: this only updates the four data arrays (skillGroups / jobs / honors /
-education). If you restructure the resume sections drastically, re-check
-the regexes below — they expect the same paragraph patterns as the
-original resume (see PATTERNS section).
+NOTE: this updates the header fields (name / contact / headline / summary)
+and the four data arrays (skillGroups / jobs / honors / education). If you
+restructure the resume sections drastically, re-check the regexes below —
+they expect the same paragraph patterns as the original resume (see
+PATTERNS section).
 """
 import argparse
 import json
@@ -126,6 +127,53 @@ YEAR_RE = re.compile(r"(\d{4})\s*$")
 PHONE_RE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 URL_RE = re.compile(r"https?://\S+")
+# A header contact line is pipe-separated ("Singapore PR | +65 ... | url | email").
+CONTACT_SEP = "|"
+# The tagline reads "Role — facet · facet · facet". Middots are what
+# distinguish it from the summary paragraph, which is plain prose.
+TAGLINE_FACET_SEP = "·"
+TAGLINE_ROLE_SEP_RE = re.compile(r"\s+[—–]\s+")
+
+
+def parse_contact_line(contact, line):
+    """Fold one pipe-separated header line into the contact dict. Whatever
+    segment is not a phone/email/URL is the location."""
+    for seg in line.split(CONTACT_SEP):
+        seg = seg.strip()
+        if not seg:
+            continue
+        um = URL_RE.search(seg)
+        if um:
+            url = um.group(0).rstrip("|").strip()
+            if "github.com" in url:
+                contact["github"] = url
+            elif "linkedin.com" in url:
+                contact["linkedin"] = url
+            else:
+                # Anything else is the personal site (github.io -- NOT github.com).
+                contact["website"] = url
+            continue
+        em = EMAIL_RE.search(seg)
+        if em:
+            contact["email"] = em.group(0)
+            continue
+        pm = PHONE_RE.search(seg)
+        if pm:
+            contact.setdefault("phones", []).append(pm.group(0).strip())
+            continue
+        contact.setdefault("location", seg)
+
+
+def parse_tagline(data, line):
+    """Split "Role — facet · facet" into the sidebar headline (the role, short
+    enough for its uppercase treatment) and the chips shown on the summary."""
+    parts = TAGLINE_ROLE_SEP_RE.split(line, maxsplit=1)
+    if len(parts) == 2:
+        role, facets = parts
+    else:
+        role, facets = "", parts[0]
+    data["headline"] = role.strip()
+    data["taglineFacets"] = [f.strip() for f in facets.split(TAGLINE_FACET_SEP) if f.strip()]
 
 
 def split_bullets(paragraph):
@@ -179,6 +227,9 @@ def parse_resume(paragraphs):
     data = {
         "name": "",
         "contact": {},
+        "headline": "",
+        "taglineFacets": [],
+        "summary": "",
         "skillGroups": [],
         "honors": [],
         "jobs": [],
@@ -198,7 +249,7 @@ def parse_resume(paragraphs):
         if stripped.upper().startswith("WORK EXPERIENCE"):
             section = "experience"
             continue
-        if stripped.upper().startswith("EDUCATIONAL PROFILE"):
+        if stripped.upper().startswith("EDUCATION"):
             section = "education"
             continue
         if "PROFESSIONAL CERTIFICATIONS" in stripped.upper() or "HONORS" in stripped.upper() and section != "experience":
@@ -208,26 +259,20 @@ def parse_resume(paragraphs):
             continue
 
         if section is None:
-            # first paragraph: name, location, phone(s), email, github, linkedin all run together
-            if not data["name"] and "(" in stripped:
-                data["name"] = stripped.split("(")[0].strip()
-                m = re.search(r"\(([^)]+)\)", stripped)
-                if m:
-                    data["contact"]["location"] = m.group(1).strip()
-                data["contact"]["phones"] = PHONE_RE.findall(stripped)
-                em = EMAIL_RE.search(stripped)
-                if em:
-                    data["contact"]["email"] = em.group(0)
-                for url in URL_RE.findall(stripped):
-                    url = url.rstrip("|").strip()
-                    if "github.com" in url:
-                        data["contact"]["github"] = url
-                    elif "linkedin.com" in url:
-                        data["contact"]["linkedin"] = url
-                    else:
-                        # Anything else in the header line is the personal site
-                        # (github.io -- note it is NOT github.com).
-                        data["contact"]["website"] = url
+            # Header, before the first section heading. The name is its own
+            # paragraph; contact details follow on one or more "a | b | c" lines;
+            # then the tagline and the professional summary.
+            if not data["name"]:
+                data["name"] = stripped
+                continue
+            if CONTACT_SEP in stripped:
+                parse_contact_line(data["contact"], stripped)
+                continue
+            if not data["headline"] and TAGLINE_FACET_SEP in stripped:
+                parse_tagline(data, stripped)
+                continue
+            # Anything left in the header is prose: the professional summary.
+            data["summary"] = (data["summary"] + " " + stripped).strip()
             continue
 
         if section == "skills":
@@ -284,8 +329,9 @@ def parse_resume(paragraphs):
 
 
 def add_headline(data):
-    """Sidebar headline = the most recent job's role."""
-    if data["jobs"]:
+    """The tagline supplies the headline when the resume has one; fall back to
+    the most recent job's role for resumes that do not."""
+    if not data["headline"] and data["jobs"]:
         data["headline"] = data["jobs"][0]["role"]
     return data
 
