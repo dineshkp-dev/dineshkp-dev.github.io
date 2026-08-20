@@ -136,8 +136,9 @@ TAGLINE_ROLE_SEP_RE = re.compile(r"\s+[—–]\s+")
 
 
 def parse_contact_line(contact, line):
-    """Fold one pipe-separated header line into the contact dict. Whatever
-    segment is not a phone/email/URL is the location."""
+    """Fold one pipe-separated header line into the contact dict. Only
+    phones/email/URLs are kept; any other segment (the location) is dropped,
+    because the page does not show it."""
     for seg in line.split(CONTACT_SEP):
         seg = seg.strip()
         if not seg:
@@ -160,8 +161,6 @@ def parse_contact_line(contact, line):
         pm = PHONE_RE.search(seg)
         if pm:
             contact.setdefault("phones", []).append(pm.group(0).strip())
-            continue
-        contact.setdefault("location", seg)
 
 
 def parse_tagline(data, line):
