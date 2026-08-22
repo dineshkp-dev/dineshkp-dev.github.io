@@ -1,5 +1,7 @@
 .idea/
 __pycache__/
+# The repo is public, so only the generated PDF is shared -- not the
+# editable source it came from.
 Pulikesi_Dinesh_Kumar.docx
 ~$*.docx
 # Source headshot. The page ships a downscaled crop inlined as a data URI,
