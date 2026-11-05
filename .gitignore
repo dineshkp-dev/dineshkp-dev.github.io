@@ -1,9 +1,6 @@
 .idea/
 __pycache__/
-# The repo is public, so only the generated PDF is shared -- not the
-# editable source it came from.
-Pulikesi_Dinesh_Kumar.docx
 ~$*.docx
 # Source headshot. The page ships a downscaled crop inlined as a data URI,
-# so the full-size original is a local source artifact like the .docx.
+# so the full-size original stays a local source artifact.
 profile_head_1.jpg
