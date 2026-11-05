@@ -15,7 +15,7 @@ light toggle).
 | `og-card.jpg` | 1200×630 social preview card served at `og:image`. Committed and deployed; regenerate by hand (see below). |
 | `docs/adr/` | Architecture Decision Records. Start with `0001-standalone-resume-rebuild.md`. |
 | `CLAUDE.md` | Agent instructions (issue tracker, triage, domain docs conventions). |
-| `Pulikesi_Dinesh_Kumar.docx` | Source résumé. **Git-ignored** — keep it locally, it is not committed. |
+| `Pulikesi_Dinesh_Kumar.docx` | Source résumé. Committed but **not deployed** — see `docs/adr/0005-track-source-docx.md`. |
 | `profile_head_1.jpg` | Source headshot. **Git-ignored** — the page ships a downscaled crop inline. |
 
 ## How it works
@@ -56,8 +56,8 @@ markup, and restyling never touches the data.
    downloadable PDF can never drift apart. This means the updater needs
    **Windows with Word installed**. Your open Word session is safe — the export
    works from a temp copy and won't close a Word you already had running.
-3. Open `index.html` in a browser to check it, then commit **both**
-   `index.html` and `Dinesh-Kumar-Pulikesi-Resume.pdf`.
+3. Open `index.html` in a browser to check it, then commit **all three**:
+   the `.docx`, `index.html`, and `Dinesh-Kumar-Pulikesi-Resume.pdf`.
 
 Override the defaults if needed:
 ```bash
@@ -154,12 +154,13 @@ stays in the repo but is not served under the site URL. See
 `docs/adr/0003-downloadable-pdf-and-profile-photo.md`, and
 `docs/adr/0004-social-preview-card.md`.
 
-To ship a résumé update: run `python update_resume.py`, commit `index.html` and
-the PDF via a PR, and merging to `master` redeploys automatically.
+To ship a résumé update: run `python update_resume.py`, commit the `.docx`,
+`index.html`, and the PDF via a PR, and merging to `master` redeploys automatically.
 
 ## Working conventions
 
 - Ship changes via a **feature branch → pull request → merge** into `master`;
   don't commit directly to `master`.
-- Keep the source `.docx` out of git (already in `.gitignore`).
+- The source `.docx` is committed to this public repo, so anything in it stays in
+  git history even after it is removed from the résumé (see ADR 0005).
 - Record notable architectural decisions as new files under `docs/adr/`.

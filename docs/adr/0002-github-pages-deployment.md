@@ -7,6 +7,9 @@ Amended by [ADR 0003](0003-downloadable-pdf-and-profile-photo.md): the artifact 
 no longer `index.html` alone — `Dinesh-Kumar-Pulikesi-Resume.pdf` is committed and
 copied alongside it. The source `.docx` remains git-ignored and unpublished.
 
+Amended by [ADR 0005](0005-track-source-docx.md): the source `.docx` is now
+committed. It is still not deployed.
+
 ## Context
 
 `index.html` is a single, self-contained static page (see ADR 0001) with no build

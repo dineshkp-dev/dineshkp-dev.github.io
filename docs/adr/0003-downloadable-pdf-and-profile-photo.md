@@ -5,6 +5,9 @@ Date: 2026-07-27
 
 Amends ADR 0001 (standalone rebuild) and ADR 0002 (GitHub Pages deployment).
 
+Amended by [ADR 0005](0005-track-source-docx.md): the source `.docx` is now
+committed, reversing the exclusion described below.
+
 ## Context
 
 The page offered a **printer button** that called `window.print()`. That is not
